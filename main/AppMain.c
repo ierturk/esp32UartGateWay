@@ -32,7 +32,7 @@
 #define ECHO_TEST_RXD  (GPIO_NUM_16)
 #define ECHO_TEST_RTS  (UART_PIN_NO_CHANGE)
 #define ECHO_TEST_CTS  (UART_PIN_NO_CHANGE)
-#define BUF_SIZE (1024)
+#define BUF_SIZE (512)
 
 static const char *TAG = "uart_gateway";
 
@@ -42,12 +42,12 @@ QueueHandle_t  qTx=NULL;
 
 static void udp_server_task(void *pvParameters)
 {
-    char rx_buffer[128];
-    char addr_str[128];
+    char rx_buffer[512];
+    char addr_str[512];
     int addr_family;
     int ip_protocol;
 
-    char buffTx[1024];
+    char buffTx[512];
     int lenBuffTx = 0;
     uint8_t rec;
 
@@ -85,11 +85,6 @@ static void udp_server_task(void *pvParameters)
         ESP_LOGI(TAG, "Socket bound, port %d", PORT);
 
         while (1) {
-
-        	// UART Stuff
-        	// int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 20 / portTICK_RATE_MS);
-            // uart_write_bytes(UART_NUM_2, (const char *) data, len);
-
             ESP_LOGI(TAG, "Waiting for data");
             struct sockaddr_in6 source_addr; // Large enough for both IPv4 or IPv6
             socklen_t socklen = sizeof(source_addr);
@@ -115,18 +110,22 @@ static void udp_server_task(void *pvParameters)
                 ESP_LOGI(TAG, "%s", rx_buffer);
 
                 // Send to UART
-                uart_write_bytes(UART_NUM_2, (const char *) rx_buffer, len);
+                // uart_write_bytes(UART_NUM_2, (const char *) rx_buffer, len);
 
 
-            	while(xQueueReceive(qRx, &rec,(TickType_t )(100/portTICK_PERIOD_MS))) {
-            		printf("value received on queue: %c \n", (char)rec);
+            	while(xQueueReceive(qRx, &rec,(TickType_t )(1/portTICK_PERIOD_MS))) {
+            		// printf("value received on queue: %c \n", (char)rec);
             		buffTx[lenBuffTx++] = rec;
+            		if(lenBuffTx > 511)
+            			break;
             	}
+                ESP_LOGI(TAG, "Length TX Buffer : %d", lenBuffTx);
             	buffTx[lenBuffTx] = 0;
 
             	int err;
             	if(lenBuffTx>0) {
             		// from uart
+            		// printf("value received on queue: %s \n", buffTx);
             		err = sendto(sock, buffTx, lenBuffTx, 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
             		lenBuffTx = 0;
             	} else {
@@ -149,7 +148,7 @@ static void udp_server_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-static void echo_task(void *arg)
+static void uart_task(void *arg)
 {
     /* Configure parameters of an UART driver,
      * communication pins and install the driver */
@@ -171,6 +170,7 @@ static void echo_task(void *arg)
     while (1) {
         // Read data from the UART
         int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        ESP_LOGI(TAG, "Data from UART Length: %d", len);
 
         if(qRx != NULL) {
         	for(int i=0;i<len;i++) {
@@ -179,7 +179,7 @@ static void echo_task(void *arg)
         }
 
         // Write data back to the UART
-        uart_write_bytes(UART_NUM_2, (const char *) data, len);
+        // uart_write_bytes(UART_NUM_2, (const char *) data, len);
     }
 }
 
@@ -206,13 +206,13 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(example_connect());
 
-    qRx = xQueueCreate(1024, sizeof(uint8_t));
-    qTx = xQueueCreate(1024, sizeof(char));
+    qRx = xQueueCreate(512, sizeof(uint8_t));
+    qTx = xQueueCreate(512, sizeof(char));
 
     xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
-    xTaskCreate(echo_task, "uart_echo_task", 1024, NULL, 10, NULL);
+    xTaskCreate(uart_task, "uart_task", 4096, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_task", 1024, NULL, 12, NULL);
 
-    ESP_ERROR_CHECK(example_connect());
 }
