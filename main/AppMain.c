@@ -36,12 +36,20 @@
 
 static const char *TAG = "uart_gateway";
 
+QueueHandle_t  qRx=NULL;
+QueueHandle_t  qTx=NULL;
+
+
 static void udp_server_task(void *pvParameters)
 {
     char rx_buffer[128];
     char addr_str[128];
     int addr_family;
     int ip_protocol;
+
+    char buffTx[1024];
+    int lenBuffTx = 0;
+    uint8_t rec;
 
     while (1) {
 
@@ -109,8 +117,22 @@ static void udp_server_task(void *pvParameters)
                 // Send to UART
                 uart_write_bytes(UART_NUM_2, (const char *) rx_buffer, len);
 
-                // Echo
-                int err = sendto(sock, rx_buffer, len, 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
+
+            	while(xQueueReceive(qRx, &rec,(TickType_t )(100/portTICK_PERIOD_MS))) {
+            		printf("value received on queue: %c \n", (char)rec);
+            		buffTx[lenBuffTx++] = rec;
+            	}
+            	buffTx[lenBuffTx] = 0;
+
+            	int err;
+            	if(lenBuffTx>0) {
+            		// from uart
+            		err = sendto(sock, buffTx, lenBuffTx, 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
+            		lenBuffTx = 0;
+            	} else {
+                    // Echo
+                    err = sendto(sock, rx_buffer, len, 0, (struct sockaddr *)&source_addr, sizeof(source_addr));
+            	}
                 if (err < 0) {
                     ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                     break;
@@ -149,6 +171,13 @@ static void echo_task(void *arg)
     while (1) {
         // Read data from the UART
         int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+
+        if(qRx != NULL) {
+        	for(int i=0;i<len;i++) {
+        		xQueueSend(qRx, (void *)&data[i], (TickType_t )0);
+        	}
+        }
+
         // Write data back to the UART
         uart_write_bytes(UART_NUM_2, (const char *) data, len);
     }
@@ -171,13 +200,19 @@ static void blink_task(void *arg)
     }
 }
 
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_ERROR_CHECK(example_connect());
+
+    qRx = xQueueCreate(1024, sizeof(uint8_t));
+    qTx = xQueueCreate(1024, sizeof(char));
+
     xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
     xTaskCreate(echo_task, "uart_echo_task", 1024, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_task", 1024, NULL, 12, NULL);
+
+    ESP_ERROR_CHECK(example_connect());
 }
