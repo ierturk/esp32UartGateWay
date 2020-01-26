@@ -43,19 +43,6 @@ static void udp_server_task(void *pvParameters)
     int addr_family;
     int ip_protocol;
 
-    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
-    uart_config_t uart_config = {
-        .baud_rate = 921600,
-        .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
-    };
-    uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
-    uart_param_config(UART_NUM_2, &uart_config);
-    uart_set_pin(UART_NUM_2, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS);
-
     while (1) {
 
 #ifdef CONFIG_EXAMPLE_IPV4
@@ -99,6 +86,7 @@ static void udp_server_task(void *pvParameters)
             struct sockaddr_in6 source_addr; // Large enough for both IPv4 or IPv6
             socklen_t socklen = sizeof(source_addr);
             int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &socklen);
+            ESP_LOGI(TAG, "Received %d bytes", len);
 
             // Error occurred during receiving
             if (len < 0) {
@@ -139,6 +127,50 @@ static void udp_server_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+static void echo_task(void *arg)
+{
+    /* Configure parameters of an UART driver,
+     * communication pins and install the driver */
+    uart_config_t uart_config = {
+        .baud_rate = 921600,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_APB,
+    };
+    uart_driver_install(UART_NUM_2, BUF_SIZE * 2, 0, 0, NULL, 0);
+    uart_param_config(UART_NUM_2, &uart_config);
+    uart_set_pin(UART_NUM_2, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS);
+
+    // Configure a temporary buffer for the incoming data
+    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+
+    while (1) {
+        // Read data from the UART
+        int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        // Write data back to the UART
+        uart_write_bytes(UART_NUM_2, (const char *) data, len);
+    }
+}
+
+static void blink_task(void *arg)
+{
+    gpio_pad_select_gpio(GPIO_NUM_33);
+    /* Set the GPIO as a push/pull output */
+    gpio_set_direction(GPIO_NUM_33, GPIO_MODE_OUTPUT);
+    while(1) {
+        /* Blink off (output low) */
+    	// printf("Turning off the LED\n");
+        gpio_set_level(GPIO_NUM_33, 0);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        /* Blink on (output high) */
+        // printf("Turning on the LED\n");
+        gpio_set_level(GPIO_NUM_33, 1);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+}
+
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -146,4 +178,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(example_connect());
     xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
+    xTaskCreate(echo_task, "uart_echo_task", 1024, NULL, 10, NULL);
+    xTaskCreate(blink_task, "blink_task", 1024, NULL, 12, NULL);
 }
