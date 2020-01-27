@@ -28,7 +28,7 @@
 
 #include "esp_spiffs.h"
 
-// #include "mongoose.h"
+#include "mongoose.h"
 
 #define PORT CONFIG_EXAMPLE_PORT
 
@@ -39,6 +39,9 @@
 #define BUF_SIZE (512)
 
 #define DOCUMENT_ROOT "/spiffs"
+#define MG_LISTEN_ADDR "8081"
+#define DOCUMENT_ROOT "/spiffs"
+volatile bool connected = false;
 
 static const char *TAG = "uart_gateway";
 
@@ -239,13 +242,82 @@ void mountFileSystem(void)
     }
 }
 
+static void mg_ev_handler(struct mg_connection *nc, int ev, void *p)
+{
+    static const char *reply_fmt =
+        "HTTP/1.0 200 OK\r\n"
+        "Connection: close\r\n"
+        "Content-Type: text/plain\r\n"
+        "\r\n"
+        "Hello %s\n";
+
+    static char fname[64];
+
+    struct websocket_message *wm = (struct websocket_message *) p;
+
+    switch (ev) {
+
+    case MG_EV_WEBSOCKET_HANDSHAKE_DONE: {
+        /* New websocket connection. Tell everybody. */
+        printf("new websocket connection\n");
+        connected = true;
+        break;
+    }
+    case MG_EV_WEBSOCKET_FRAME:
+        /* Echo received frame back */
+        mg_send_websocket_frame(nc, WEBSOCKET_OP_TEXT, wm->data, wm->size);
+        break;
+
+    case MG_EV_ACCEPT: {
+        char addr[32];
+        mg_sock_addr_to_str(&nc->sa, addr, sizeof(addr),
+                            MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
+        printf("Connection %p from %s\n", nc, addr);
+        break;
+    }
+    case MG_EV_HTTP_REQUEST: {
+        char addr[32];
+        struct http_message *hm = (struct http_message *) p;
+        mg_sock_addr_to_str(&nc->sa, addr, sizeof(addr),
+                            MG_SOCK_STRINGIFY_IP | MG_SOCK_STRINGIFY_PORT);
+
+        printf("HTTP request from %s: %.*s %.*s\n", addr, (int) hm->method.len,
+               hm->method.p, (int) hm->uri.len, hm->uri.p);
+
+        strcpy(fname, "/spiffs");
+        if (!mg_vcmp(&hm->uri, "/") || !mg_vcmp(&hm->uri, "/index"))
+            strcat(fname, "/index.html");
+        else
+            strncat(fname, hm->uri.p, hm->uri.len);
+
+        printf("file %s\n", fname);
+        mg_http_serve_file(nc, hm, fname,
+                           mg_mk_str(""), mg_mk_str(""));
+
+
+              // mg_printf(nc, reply_fmt, addr);
+              // nc->flags |= MG_F_SEND_AND_CLOSE;
+
+        break;
+    }
+    case MG_EV_CLOSE: {
+        printf("Connection %p closed\n", nc);
+        connected = false;
+        break;
+    }
+    }
+}
+
 
 void app_main(void)
 {
+    char msg[128];
+    int count = 0;
+    int tcount = 0;
+
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-
 
     mountFileSystem();
 
@@ -257,7 +329,34 @@ void app_main(void)
     qRx = xQueueCreate(512, sizeof(uint8_t));
     qTx = xQueueCreate(512, sizeof(char));
 
-    xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
-    xTaskCreate(uart_task, "uart_task", 4096, NULL, 10, NULL);
+    struct mg_mgr mgr;
+    struct mg_connection *nc;
+
+    printf("Starting web-server on port %s\n", MG_LISTEN_ADDR);
+
+    mg_mgr_init(&mgr, NULL);
+
+    nc = mg_bind(&mgr, MG_LISTEN_ADDR, mg_ev_handler);
+    if (nc == NULL) {
+        printf("Error setting up listener!\n");
+        return;
+    }
+    mg_set_protocol_http_websocket(nc);
+
+    // xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
+    // xTaskCreate(uart_task, "uart_task", 4096, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_task", 1024, NULL, 12, NULL);
+
+    /* Processing events */
+    while (1) {
+        mg_mgr_poll(&mgr, 1000);
+
+        if (connected && tcount > 2) {
+            struct mg_connection* c = mg_next(nc->mgr, NULL);
+            sprintf(msg, "{ \"temp\":%d, \"msg\": \"%s\" }", count++, "deneme\\n");
+            mg_send_websocket_frame(c, WEBSOCKET_OP_TEXT, msg, strlen(msg));
+            tcount = 0;
+        }
+        tcount++;
+    }
 }

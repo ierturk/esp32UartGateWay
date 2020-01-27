@@ -19,7 +19,7 @@
  * Alternatively, you can license this software under a commercial
  * license, as set out in <https://www.cesanta.com/license>.
  */
-
+//#define CS_PLATFORM CS_P_ESP32
 #ifndef CS_MONGOOSE_SRC_COMMON_H_
 #define CS_MONGOOSE_SRC_COMMON_H_
 
@@ -113,6 +113,8 @@
 #define MG_SSL_IF_OPENSSL 1
 #define MG_SSL_IF_MBEDTLS 2
 #define MG_SSL_IF_SIMPLELINK 3
+
+#include "platform_esp32.h"
 
 /* Amalgamated: #include "common/platforms/platform_unix.h" */
 /* Amalgamated: #include "common/platforms/platform_windows.h" */
