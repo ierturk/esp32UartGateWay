@@ -26,6 +26,10 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
+#include "esp_spiffs.h"
+
+// #include "mongoose.h"
+
 #define PORT CONFIG_EXAMPLE_PORT
 
 #define ECHO_TEST_TXD  (GPIO_NUM_32)
@@ -33,6 +37,8 @@
 #define ECHO_TEST_RTS  (UART_PIN_NO_CHANGE)
 #define ECHO_TEST_CTS  (UART_PIN_NO_CHANGE)
 #define BUF_SIZE (512)
+
+#define DOCUMENT_ROOT "/spiffs"
 
 static const char *TAG = "uart_gateway";
 
@@ -169,7 +175,7 @@ static void uart_task(void *arg)
 
     while (1) {
         // Read data from the UART
-        int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 1 / portTICK_RATE_MS);
         ESP_LOGI(TAG, "Data from UART Length: %d", len);
 
         if(qRx != NULL) {
@@ -200,12 +206,52 @@ static void blink_task(void *arg)
     }
 }
 
+void mountFileSystem(void)
+{
+    ESP_LOGI(TAG, "Initializing SPIFFS");
+
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = "/spiffs",
+        .partition_label = NULL,
+        .max_files = 5,
+        .format_if_mount_failed = false
+    };
+
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(TAG, "Failed to mount or format filesystem");
+        } else if (ret == ESP_ERR_NOT_FOUND) {
+            ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+        } else {
+            ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+        }
+        return;
+    }
+
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info(NULL, &total, &used);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+    }
+}
+
 
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+
+    mountFileSystem();
+
+    printf("Starting in %d seconds...\n", 1);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
     ESP_ERROR_CHECK(example_connect());
 
     qRx = xQueueCreate(512, sizeof(uint8_t));
@@ -214,5 +260,4 @@ void app_main(void)
     xTaskCreate(udp_server_task, "udp_server", 4096, NULL, 5, NULL);
     xTaskCreate(uart_task, "uart_task", 4096, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_task", 1024, NULL, 12, NULL);
-
 }
