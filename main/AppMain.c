@@ -30,6 +30,14 @@
 
 #include "mongoose.h"
 
+#ifdef CONFIG_IDF_TARGET_ESP32
+#define CHIP_NAME "ESP32"
+#endif
+
+#ifdef CONFIG_IDF_TARGET_ESP32S2BETA
+#define CHIP_NAME "ESP32-S2 Beta"
+#endif
+
 #define PORT CONFIG_EXAMPLE_PORT
 
 #define ECHO_TEST_TXD  (GPIO_NUM_32)
@@ -38,7 +46,6 @@
 #define ECHO_TEST_CTS  (UART_PIN_NO_CHANGE)
 #define BUF_SIZE (512)
 
-#define DOCUMENT_ROOT "/spiffs"
 #define MG_LISTEN_ADDR "8081"
 #define DOCUMENT_ROOT "/spiffs"
 volatile bool connected = false;
