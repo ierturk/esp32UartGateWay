@@ -51,6 +51,8 @@
 volatile bool connected = false;
 
 static const char *TAG = "uart_gateway";
+char msg[128];
+int count = 0;
 
 QueueHandle_t  qRx=NULL;
 QueueHandle_t  qTx=NULL;
@@ -125,24 +127,28 @@ static void uart_task(void *arg)
         // Read data from the UART
         int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 100 / portTICK_RATE_MS);
         if(len > 0) {
-            ESP_LOGI(TAG, "Data from UART Length: %d - %x - %x", len, data[38], data[39]);
-            ESP_LOGI(TAG, "Channel 0 data: %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
-            ESP_LOGI(TAG, "Channel 0 - 3 : %f - %f - %f - %f",
+            // ESP_LOGI(TAG, "Data from UART Length: %d - %x - %x", len, data[38], data[39]);
+            // ESP_LOGI(TAG, "Channel 0 data: %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
+
+        	/*
+        	sprintf(msg, "Channel 0 - 3 : %f - %f - %f - %f",
+            		*(float *)&data[0],
+					*(float *)&data[4],
+					*(float *)&data[8],
+					*(float *)&data[12]);
+			*/
+
+        	float temp = data[16] + data[17] / 256.0f;
+
+            sprintf(msg, "{ \"temp\":%f, \"msg\": \"%f - %f - %f - %f\\n\" }",
+            		temp,
             		*(float *)&data[0],
 					*(float *)&data[4],
 					*(float *)&data[8],
 					*(float *)&data[12]);
 
-            union test
-            	{
-            	   unsigned char buf[4];
-            	   float number;
-            	}test;
-            	test.buf[0] = data[0];
-            	test.buf[1] = data[1];
-            	test.buf[2] = data[2];
-            	test.buf[3] = data[3];
-            ESP_LOGI(TAG, "Channel 0 data: %f", test.number);
+
+        	ESP_LOGI(TAG, "%s", msg);
 
             if(qRx != NULL) {
             	for(int i=0;i<len;i++) {
@@ -222,8 +228,6 @@ static void mg_ev_handler(struct mg_connection *nc, int ev, void *p)
 
 void app_main(void)
 {
-    char msg[128];
-    int count = 0;
     int tcount = 0;
 
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -261,7 +265,8 @@ void app_main(void)
 
         if (connected && tcount > 2) {
             struct mg_connection* c = mg_next(nc->mgr, NULL);
-            sprintf(msg, "{ \"temp\":%d, \"msg\": \"%s\" }", count++, "deneme\\n");
+            // sprintf(msg, "{ \"temp\":%d, \"msg\": \"%s\" }", count++, "deneme\\n");
+            count++;
             mg_send_websocket_frame(c, WEBSOCKET_OP_TEXT, msg, strlen(msg));
             tcount = 0;
         }
