@@ -140,15 +140,10 @@ static void uart_task(void *arg)
 static void blink_task(void *arg)
 {
     gpio_pad_select_gpio(GPIO_NUM_33);
-    /* Set the GPIO as a push/pull output */
     gpio_set_direction(GPIO_NUM_33, GPIO_MODE_OUTPUT);
     while(1) {
-        /* Blink off (output low) */
-    	// printf("Turning off the LED\n");
         gpio_set_level(GPIO_NUM_33, 0);
         vTaskDelay(500 / portTICK_PERIOD_MS);
-        /* Blink on (output high) */
-        // printf("Turning on the LED\n");
         gpio_set_level(GPIO_NUM_33, 1);
         vTaskDelay(500 / portTICK_PERIOD_MS);
     }
