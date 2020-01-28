@@ -44,7 +44,7 @@
 #define ECHO_TEST_RXD  (GPIO_NUM_16)
 #define ECHO_TEST_RTS  (UART_PIN_NO_CHANGE)
 #define ECHO_TEST_CTS  (UART_PIN_NO_CHANGE)
-#define BUF_SIZE (512)
+#define BUF_SIZE (256)
 
 #define MG_LISTEN_ADDR "8081"
 #define DOCUMENT_ROOT "/spiffs"
@@ -63,7 +63,6 @@ QueueHandle_t  qTx=NULL;
     uint8_t rec;
 
 	while(xQueueReceive(qRx, &rec,(TickType_t )(1/portTICK_PERIOD_MS))) {
-		// printf("value received on queue: %c \n", (char)rec);
 		buffTx[lenBuffTx++] = rec;
 		if(lenBuffTx > 511)
 			break;
@@ -124,13 +123,32 @@ static void uart_task(void *arg)
 
     while (1) {
         // Read data from the UART
-        int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 1 / portTICK_RATE_MS);
-        ESP_LOGI(TAG, "Data from UART Length: %d", len);
+        int len = uart_read_bytes(UART_NUM_2, data, BUF_SIZE, 100 / portTICK_RATE_MS);
+        if(len > 0) {
+            ESP_LOGI(TAG, "Data from UART Length: %d - %x - %x", len, data[38], data[39]);
+            ESP_LOGI(TAG, "Channel 0 data: %02X %02X %02X %02X", data[0], data[1], data[2], data[3]);
+            ESP_LOGI(TAG, "Channel 0 - 3 : %f - %f - %f - %f",
+            		*(float *)&data[0],
+					*(float *)&data[4],
+					*(float *)&data[8],
+					*(float *)&data[12]);
 
-        if(qRx != NULL) {
-        	for(int i=0;i<len;i++) {
-        		xQueueSend(qRx, (void *)&data[i], (TickType_t )0);
-        	}
+            union test
+            	{
+            	   unsigned char buf[4];
+            	   float number;
+            	}test;
+            	test.buf[0] = data[0];
+            	test.buf[1] = data[1];
+            	test.buf[2] = data[2];
+            	test.buf[3] = data[3];
+            ESP_LOGI(TAG, "Channel 0 data: %f", test.number);
+
+            if(qRx != NULL) {
+            	for(int i=0;i<len;i++) {
+            		xQueueSend(qRx, (void *)&data[i], (TickType_t )0);
+            	}
+            }
         }
         // Write data back to the UART
         // uart_write_bytes(UART_NUM_2, (const char *) data, len);
@@ -234,7 +252,7 @@ void app_main(void)
     }
     mg_set_protocol_http_websocket(nc);
 
-    // xTaskCreate(uart_task, "uart_task", 4096, NULL, 10, NULL);
+    xTaskCreate(uart_task, "uart_task", 4096, NULL, 10, NULL);
     xTaskCreate(blink_task, "blink_task", 1024, NULL, 12, NULL);
 
     /* Processing events */
