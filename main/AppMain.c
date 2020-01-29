@@ -188,6 +188,7 @@ static void mg_ev_handler(struct mg_connection *nc, int ev, void *p)
 		}
 		case MG_EV_WEBSOCKET_FRAME:
 			mg_send_websocket_frame(nc, WEBSOCKET_OP_TEXT, wm->data, wm->size);
+			printf("ws data %s", wm->data);
 			break;
 
 		case MG_EV_ACCEPT: {
